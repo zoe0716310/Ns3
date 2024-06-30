@@ -62,6 +62,7 @@
 #include "tutorial-app.h"
 #include "ns3/log.h"
 #include <bitset>
+#include <algorithm>
 
 using namespace ns3;
 
@@ -95,7 +96,7 @@ SequenceNumber32 nextRxSeq = SequenceNumber32(0);
 std::map<uint32_t, std::pair<uint32_t, uint32_t>> UdpMap;
 std::vector<int> udp_cnt(WorkerNum);
 int receivedUdp = 0;
-int totalPkt = 60000;
+int totalPkt = 20000;
 int successAggregate = 0;
 std::vector<Ptr<TutorialApp>> app(WorkerNum);
 std::vector<PointToPointHelper> edgeLinks(WorkerNum + 1);
@@ -494,6 +495,9 @@ main(int argc, char* argv[])
         // }
         edgeLinks[i].SetChannelAttribute("Delay", StringValue("0.2ms"));
     }
+    double minBw = *std::min_element(workerBw.begin(), workerBw.end());
+    stopTime = Seconds((totalPkt * (payloadSize + 54) * 8) / (1000000 * (minBw - 2.0)));
+    std::cout << "stopTime : " << stopTime << "\n";
 
     PointToPointHelper bottleneckLink;
     bottleneckLink.SetDeviceAttribute("DataRate", StringValue("500Mbps"));

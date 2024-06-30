@@ -387,7 +387,7 @@ main(int argc, char* argv[])
     std::string queueDisc = "AggregateQueueDisc";
     uint32_t delAckCount = 2;
     bool bql = true;
-    bool enablePcap = true;
+    bool enablePcap = false;
     Time stopTime = Seconds(30);
     LogComponentEnable("Example", LOG_LEVEL_INFO);
 
