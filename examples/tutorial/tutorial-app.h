@@ -152,6 +152,7 @@ class TutorialApp : public Application
     int m_now_wid; //!< now_wid
     double m_pktSendWid; //!< wid in double type should send
     int m_retransmissionTimes; //!< retransmission times
+    bool m_ecnFlag;
 };
 
 } // namespace ns3

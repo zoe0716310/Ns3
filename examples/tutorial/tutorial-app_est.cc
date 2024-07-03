@@ -54,7 +54,8 @@ TutorialApp::Setup(Ptr<Socket> socket,
                    Address address,
                    uint32_t packetSize,
                    uint32_t nPackets,
-                   DataRate dataRate)
+                   DataRate dataRate,
+                   int timeout)
 {
     m_socket = socket;
     m_peer = address;
@@ -63,10 +64,16 @@ TutorialApp::Setup(Ptr<Socket> socket,
     m_dataRate = dataRate;
     m_cwnd = 10;
     m_fastRecoveryCnt = 0;
-    m_timeOut = Seconds(0.005);
+    m_nextCwnd = m_cwnd;
+    m_rtt = MilliSeconds(2);
+    m_timeOut = MilliSeconds(timeout);
     m_windowFirstSeq = 0;
     m_windowLastSeq = m_cwnd - 1;
+    m_mdFlag = false;
+    m_ssFlag = false;
+    m_ssSsh = 1000;
     m_retransNumber = 0;
+    m_ecnFlag = false;
 }
 
 // void 
@@ -99,6 +106,7 @@ void
 TutorialApp::StopApplication()
 {
     m_running = false;
+    m_cwnd = 0;
 
     if (m_sendEvent.IsRunning())
     {
@@ -131,60 +139,152 @@ TutorialApp::ResetVector(std::vector<uint32_t> udpPayload)
     m_isVector = true;
 }
 
-int retransmissionTimes = 0;
-
 void 
 TutorialApp::Ack(int seq, bool ecn)
 {
-    std::cout << "Ack()\n";
+    std::cout << "worker " << m_socket->GetNode()->GetId() << " : Ack " << seq << "\n";
+    std::cout << "m_unAckedList[0].first = " << m_unAckedList[0].first << "\n";
+    if (seq != m_unAckedList[0].first){
+        m_fastRecoveryCnt++;
+    }
+    else{
+        m_fastRecoveryCnt = 0;
+    }
+
     for(int i = 0; i < m_unAckedList.size(); i++){
         if (m_unAckedList[i].first == seq){
+            if (i < m_retransNumber){
+                m_retransNumber--;
+            }
+            m_rtt = (m_rtt + (Now() - m_unAckedList[i].second)) / 2;
             m_unAckedList.erase(m_unAckedList.begin() + i);
         }
     }
-    if (m_unAckedList.empty()){
-        std::cout << "retransmission times : " << retransmissionTimes << "\n";
+    std::cout << "m_fastRecoveryCnt = " << m_fastRecoveryCnt << "; m_retransNumber = " << m_retransNumber << "\n";
+
+    if (m_fastRecoveryCnt >= 3){
+        if (m_unAckedList[m_retransNumber].first >= m_windowFirstSeq){
+            if (!m_mdFlag){
+                m_mdFlag = true;
+                m_cwnd = m_cwnd / 2;
+                m_ecnFlag = false;
+                if (m_cwnd == 0){
+                    m_cwnd = 1;
+                }
+            }
+        }
+        std::cout << "wait retrans seq = " << m_unAckedList[m_retransNumber].first << "\n";
+        if (m_unAckedList[m_retransNumber].first <= seq - 3){
+            std::cout << "worker " << m_socket->GetNode()->GetId() << " : Fast Recovery Trigger\n";
+            Retransmission(m_unAckedList[m_retransNumber].first, false);
+            m_unAckedList[m_retransNumber].second = Now();
+        }
     }
-    std::cout << "Ack() End\n";
+    if(ecn){
+        if (!m_mdFlag){
+            m_ecnFlag = true;
+        }
+        // std::cout << "worker " << m_socket->GetNode()->GetId() << " : ECN Trigger\n";
+    }
+
+    if (seq >= m_windowLastSeq){
+        if(m_mdFlag || m_ecnFlag){
+            try{
+                if (m_ecnFlag){
+                    m_cwnd = m_cwnd / 2;
+                }
+                if (m_ssFlag){
+                    m_ssFlag = false;
+                }
+                else{
+                    m_ssSsh = m_cwnd;
+                }
+                // m_ssFlag = false;
+                m_mdFlag = false;
+                if (m_cwnd == 0){
+                    m_cwnd = 1;
+                }
+            }
+            catch (std::exception& e){
+                std::cout << "m_mdFlag m_cwnd = " << m_cwnd << "\n";
+            }
+        }
+        else if(m_cwnd < m_ssSsh){
+            try{
+                m_cwnd = m_cwnd * 2;
+            }
+            catch (std::exception& e){
+                std::cout << "m_ssFlag m_cwnd = " << m_cwnd << "\n";
+            }
+        }
+        else{
+            try{
+                m_cwnd = m_cwnd + 1;
+            }
+            catch (std::exception& e){
+                std::cout << "Else m_cwnd = " << m_cwnd << "\n";
+            }
+        }
+        m_windowFirstSeq = m_windowLastSeq;
+        m_windowLastSeq = m_windowLastSeq + m_cwnd;
+        std::cout << "worker " << m_socket->GetNode()->GetId() << "m_windowFirstSeq = " << m_windowFirstSeq << "; m_windowLastSeq = " << m_windowLastSeq << "\n";
+    }
+    std::cout << "worker " << m_socket->GetNode()->GetId() << " m_cwnd = " << m_cwnd << "\n";
+}
+
+int 
+TutorialApp::GetCwnd()
+{
+    return m_cwnd;
 }
 
 void 
 TutorialApp::CheckAck(int seq)
 {
-    std::cout << "CheckAck()\n";
     for(int i = 0; i < m_unAckedList.size(); i++){
         if (m_unAckedList[i].first == seq){
-            Retransmission(seq);
+            if (i == 0){
+                Retransmission(seq, true);
+                m_unAckedList[i].second = Now();
+            }
+            else{
+                if (m_running)
+                {
+                    Time tNext(m_timeOut);
+                    m_sendEvent = Simulator::Schedule(tNext, &TutorialApp::CheckAck, this, seq);
+                }
+            }
         }
     }
-    std::cout << "CheckAck() End\n";
+}
+
+void 
+TutorialApp::TriggerStopApplication()
+{
+    StopApplication();
 }
 
 void
 TutorialApp::SendPacket()
 {
+    if (m_retransNumber + m_unAckedList.size() >= m_cwnd){
+        ScheduleTx();
+        return;
+    }
     uint8_t payload[200];
-    std::cout << "SendPacket\n";
 
-    if (m_isVector){
-        payload[0] = 0;
-        payload[1] = 0;
-        payload[2] = (m_udpPayload[m_packetsSent] >> 8) & 0xFF;
-        payload[3] = m_udpPayload[m_packetsSent] & 0xFF;
-    }
-    else{
-        payload[0] = 0;
-        payload[1] = 0;
-        payload[2] = (m_packetsSent >> 8) & 0xFF;
-        payload[3] = m_packetsSent & 0xFF;
-    }
+    payload[0] = 0;
+    payload[1] = 0;
+    payload[2] = (m_packetsSent >> 8) & 0xFF;
+    payload[3] = m_packetsSent & 0xFF;
 
     Ptr<Packet> packet = Create<Packet>(payload, 200);
+    m_socket->Send(packet);
+
     std::pair<uint32_t, Time> packetTag(m_packetsSent, Now());
     m_unAckedList.push_back(packetTag);
-    m_txbuffer.push_back(m_packetsSent);
-    m_socket->Send(packet);
-    std::cout << "SendPacket End\n";
+    ScheduleCheckAck(m_packetsSent);
+
 
     if (++m_packetsSent < m_nPackets)
     {
@@ -193,10 +293,13 @@ TutorialApp::SendPacket()
 }
 
 void
-TutorialApp::Retransmission(int seq)
+TutorialApp::Retransmission(int seq, bool isTimeout)
 {
-    std::cout << "worker " << m_socket->GetNode()->GetId() << " retransmission : " << seq << "\n";
-    retransmissionTimes++;
+    if (isTimeout){
+        m_cwnd = 2;
+        m_ssFlag = true;
+    }
+    m_retransNumber++;
     uint8_t payload[200];
 
     payload[0] = 0;
@@ -205,8 +308,9 @@ TutorialApp::Retransmission(int seq)
     payload[3] = seq & 0xFF;
 
     Ptr<Packet> packet = Create<Packet>(payload, 200);
-    m_txbuffer.push_back(seq);
     m_socket->Send(packet);
+    ScheduleCheckAck(seq);
+    std::cout << "worker " << m_socket->GetNode()->GetId() << " : Retransmission : " << seq << "; Timeout : " << isTimeout << "\n";
 }
 
 void
@@ -220,19 +324,11 @@ TutorialApp::ScheduleCheckAck(int seq)
 }
 
 void
-TutorialApp::SetTimeOut(){
-    std::cout << "SetTimeOut\n";
-    ScheduleCheckAck(m_txbuffer[0]);
-    m_txbuffer.erase(m_txbuffer.begin());
-    std::cout << "SetTimeOut End\n";
-}
-
-void
 TutorialApp::ScheduleTx()
 {
     if (m_running)
     {
-        Time tNext(Seconds(m_packetSize * 8 / static_cast<double>(m_dataRate.GetBitRate())));
+        Time tNext(m_rtt / m_cwnd);
         //Time tNext(Seconds(0.05));
         m_sendEvent = Simulator::Schedule(tNext, &TutorialApp::SendPacket, this);
     }
