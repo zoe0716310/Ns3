@@ -700,7 +700,11 @@ AggregateQueueDisc::Enqueue(Ptr<QueueDiscItem> item)
             if (seq_num != 0 && !(seq_num == 1 && ack_num == 1 && copy->GetSize () == 0) && (ttl != 49) && (ttl != 50)){ // not deal with 3-way handshaking & control msg
                 hasSentVector.clear();
                 clearBuffer(hasSent);
-                if (src_info.first == "10.0.11.2") { // if packet is ACK
+                std::string temp = "10.0.";
+                temp += std::to_string(WorkerNum + 1);
+                temp += ".2";
+                Ipv4Address psAddr = Ipv4Address(temp.c_str());
+                if (src_info.first == psAddr) { // if packet is ACK
                     // std::cout << "get ack :" << ack_num << " from " << src_info.first << " to " << dst_info.first << " TTL = " << ttl << "\n";
                     ackQueue = GetInternalQueue(0);
                     getFlag = true;
