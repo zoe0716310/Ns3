@@ -453,12 +453,12 @@ main(int argc, char* argv[])
     randomVariable->SetAttribute("Variance", DoubleValue(standard_deviation * standard_deviation));
     std::vector<double> workerBw;
 
-    for (int i = 0; i < WorkerNum; i++){
-        double tempMbps = bigN - zipf->GetValue();
-        tempMbps = tempMbps / (bigN / 30);
-        std::cout << "Worker " << i << " : " << tempMbps << std::endl;
-        workerBw.push_back(tempMbps);
-    }
+    // for (int i = 0; i < WorkerNum; i++){
+    //     double tempMbps = bigN - zipf->GetValue();
+    //     tempMbps = tempMbps / (bigN / 30);
+    //     std::cout << "Worker " << i << " : " << tempMbps << std::endl;
+    //     workerBw.push_back(tempMbps);
+    // }
 
     NodeContainer sender;
     NodeContainer receiver;
@@ -488,15 +488,15 @@ main(int argc, char* argv[])
         if (i == WorkerNum){
             edgeLinks[i].SetDeviceAttribute("DataRate", StringValue(std::to_string(outgoingBW) + "Mbps"));
         }
-        // else{
-        //     double tempMbps = randomVariable->GetValue();
-        //     std::cout << "Worker " << i + 1 << " : " << tempMbps << "Mbps\n";
-        //     edgeLinks[i].SetDeviceAttribute("DataRate", StringValue(std::to_string(tempMbps) + "Mbps"));
-        //     workerBw.push_back(tempMbps);
-        // }
         else{
-            edgeLinks[i].SetDeviceAttribute("DataRate", StringValue(std::to_string(workerBw[i]) + "Mbps"));
+            double tempMbps = randomVariable->GetValue();
+            std::cout << "Worker " << i + 1 << " : " << tempMbps << "Mbps\n";
+            edgeLinks[i].SetDeviceAttribute("DataRate", StringValue(std::to_string(tempMbps) + "Mbps"));
+            workerBw.push_back(tempMbps);
         }
+        // else{
+        //     edgeLinks[i].SetDeviceAttribute("DataRate", StringValue(std::to_string(workerBw[i]) + "Mbps"));
+        // }
         edgeLinks[i].SetChannelAttribute("Delay", StringValue("0.5ms"));
     }
 
@@ -535,8 +535,12 @@ main(int argc, char* argv[])
     }
 
     ////////////////////// install aggregate queue
-    tch.Install(routers.Get(1)->GetDevice(0));
-    tch.Install(routers.Get(1)->GetDevice(1));
+    auto tempInsertionQueue = tch.Install(routers.Get(1)->GetDevice(0));
+    Ptr<AggregateQueueDisc> InsertionQueue = DynamicCast<AggregateQueueDisc> (tempInsertionQueue.Get(0));
+    auto tempDeletionQueue = tch.Install(routers.Get(1)->GetDevice(1));
+    Ptr<AggregateQueueDisc> DeletionQueue = DynamicCast<AggregateQueueDisc> (tempDeletionQueue.Get(0));
+    InsertionQueue->SetAnotherDisc(DeletionQueue);
+    DeletionQueue->SetAnotherDisc(InsertionQueue);
     //tch.Install(routers.Get(0)->GetDevice(2));
     //////////////////////
 
