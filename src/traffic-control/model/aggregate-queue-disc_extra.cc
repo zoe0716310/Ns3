@@ -99,13 +99,13 @@ class chase_set {
         }
 };
 ////////////////////////////////////////////////////// global var
-uint32_t WorkerNum = 10; // Workers per aggregate
+uint32_t WorkerNum = 10; // Workers per aggregate // NUM
 int QueueLength = 50; // max packet number in aggregate table per worker
 uint32_t AggregateSsh = 10; // threshold of aggregate
 std::map<std::pair<Ipv4Address, uint16_t>, uint32_t> Workers_Tuple; // mapping ip/port to Worker number
 std::map<uint32_t, std::pair<Ipv4Address, uint16_t>> Workers_Num; // mapping Worker number to ip/port
 std::vector<std::vector<long long>> AggregateTable; // wid / seq_1 / seq_2 / ... / seq_Workers_Num / total weight / count
-std::map<SequenceNumber32, std::bitset<10>> CountMap; // map from seq to count
+std::map<SequenceNumber32, std::bitset<10>> CountMap; // map from seq to count // NUM
 std::vector<chase_set> Worker_chase(WorkerNum + 1); // times that worker has chased
 std::vector<std::vector<long long>>::iterator min_wid;
 std::vector<std::vector<long long>>::iterator now_wid;
@@ -122,12 +122,15 @@ std::vector<std::array<uint8_t, 2>> hasSentVector;
 std::map<SequenceNumber32, std::pair<Time, bool>> timeMap;
 Ptr<ns3::QueueDisc::InternalQueue> ackQueue;
 Ptr<ns3::QueueDisc::InternalQueue> pktQueue;
+std::vector<std::pair<int, long long>> globalPktList;
+std::vector<std::array<uint8_t, 2>> globalHasSentVector;
 bool getFlag = false;
 int count = 0;
 int payloadSize = 200;
 int totalPktNum = 20000;
 std::vector<std::set<int>> receivedPackets;
 std::vector<int> lastAck;
+int thita = 20;
 //////////////////////////////////////////////////////
 
 TypeId
@@ -238,7 +241,7 @@ std::vector<std::pair<int, int>> generateSackList(const std::set<int>& receivedP
 
 void AddOptionSack(TcpHeader& header, std::vector<std::pair<int, int>> SackList)
 {
-    std::cout << "into AddOptionSack\n";
+    // std::cout << "into AddOptionSack\n";
     // Calculate the number of SACK blocks allowed in this packet
     uint8_t optionLenAvail = header.GetMaxOptionLength() - header.GetOptionLength();
     uint8_t allowedSackBlocks = (optionLenAvail - 2) / 8;
@@ -248,11 +251,11 @@ void AddOptionSack(TcpHeader& header, std::vector<std::pair<int, int>> SackList)
     for (auto block : SackList){
         ns3::TcpOptionSack::SackBlock temp = std::pair<SequenceNumber32, SequenceNumber32>(SequenceNumber32(block.first), SequenceNumber32(block.second));
         sackList.push_back(temp);
-        std::cout << "SackList (" << block.first << ", " << block.second << ")\n";
+        // std::cout << "SackList (" << block.first << ", " << block.second << ")\n";
     }
     if (allowedSackBlocks == 0 || sackList.empty())
     {
-        std::cout << "No space available or sack list empty, not adding sack blocks\n";
+        // std::cout << "No space available or sack list empty, not adding sack blocks\n";
         return;
     }
 
@@ -264,8 +267,8 @@ void AddOptionSack(TcpHeader& header, std::vector<std::pair<int, int>> SackList)
         option->AddSackBlock(*i);
         allowedSackBlocks--;
     }
-    option->Print(std::cout);
-    std::cout << "\n";
+    // option->Print(std::cout);
+    // std::cout << "\n";
 
     header.AppendOption(option);
 }
@@ -302,7 +305,7 @@ void Chase(aggregate_pkt pkt, int Worker){
         Worker_chase[Worker].chaseGap = (Worker_chase[Worker].chaseGap + (*max_wid)[0] - Worker_chase[Worker].lastBiggest) / 2;
     }
     int gap = (*max_wid)[0] - pkt.wid;
-    if (gap <= QueueLength / 2){
+    if (gap <= thita){
         Worker_chase[Worker].chaseFlag = false;
         return;
     }
@@ -323,7 +326,8 @@ void Chase(aggregate_pkt pkt, int Worker){
         // }
         else {
             // std::cout << "chase get!\n";
-            Worker_chase[Worker].chaseWid = (*max_wid)[0] + Worker_chase[Worker].chaseGap;
+            int syncGap = std::min(Worker_chase[Worker].chaseGap, QueueLength / 2);
+            Worker_chase[Worker].chaseWid = (*max_wid)[0]; //TODO : can add syncGap if bw gap not big
             Worker_chase[Worker].lastBiggest = (*max_wid)[0];
             Worker_chase[Worker].chaseFlag = true;
             // std::cout << "chase " << Worker_chase[Worker].chaseWid << "!\n";
@@ -332,23 +336,23 @@ void Chase(aggregate_pkt pkt, int Worker){
 }
 
 std::pair<std::vector<std::pair<int, int>>, std::vector<std::pair<int, long long>>> UpdateTable(aggregate_pkt pkt, u_int32_t Worker){
-    std::cout << "*****************************\n";
-    for(auto vec : AggregateTable){
-        for (auto num : vec){
-            std::cout << num << "\t";
-        }
-        if(vec[0] == (*min_wid)[0]){
-            std::cout << "<- min_wid";
-        }
-        if(vec[0] == (*max_wid)[0]){
-            std::cout << "<- max_wid";
-        }
-        if(vec[0] == (*now_wid)[0]){
-            std::cout << "<- now_wid";
-        }
-        std::cout << "\n";
-    }
-    std::cout << "*****************************\n";
+    // std::cout << "*****************************\n";
+    // for(auto vec : AggregateTable){
+    //     for (auto num : vec){
+    //         std::cout << num << "\t";
+    //     }
+    //     if(vec[0] == (*min_wid)[0]){
+    //         std::cout << "<- min_wid";
+    //     }
+    //     if(vec[0] == (*max_wid)[0]){
+    //         std::cout << "<- max_wid";
+    //     }
+    //     if(vec[0] == (*now_wid)[0]){
+    //         std::cout << "<- now_wid";
+    //     }
+    //     std::cout << "\n";
+    // }
+    // std::cout << "*****************************\n";
     std::vector<std::pair<int, int>> ackList;
     std::vector<std::pair<int, long long>> pktList;
     // put pkt into table
@@ -359,7 +363,7 @@ std::pair<std::vector<std::pair<int, int>>, std::vector<std::pair<int, long long
         //     Chase(pkt, Worker);
         // }
         Chase(pkt, Worker);
-        if (pkt.wid < (*min_wid)[0] || ((*min_wid)[0] == 0 && AggregateAck > 0)){
+        if (pkt.wid < (*min_wid)[0] ){
             // Directly sent ACK
             ackList.push_back({Worker, pkt.seq.GetValue()});
             // if (isDiactly){
@@ -395,29 +399,33 @@ std::pair<std::vector<std::pair<int, int>>, std::vector<std::pair<int, long long
                     // std::cout << "buffer overflow!\n";
                     uint32_t nQueued = pktQueue->GetCurrentSize().GetValue();
                     uint32_t maxnQueued = pktQueue->GetMaxSize().GetValue();
-                    if ((nQueued > maxnQueued * 0.95 || (*min_wid)[WorkerNum + 2] < WorkerNum / 3) && pkt.wid < (totalPktNum - QueueLength)){
-                        std::cout << "drop max\n";
-                        return {ackList, pktList};
-                    }
-                    if (min_wid == now_wid){
-                        // Directly sent min_wid
-                        pktList.push_back({(*min_wid)[0], (*min_wid)[WorkerNum + 1]});
-                        for (int j = 1; j <= 10; j++){
+                    bool partialAgg = !(nQueued > maxnQueued * 0.95 || (*min_wid)[WorkerNum + 2] < AggregateSsh);
+                    bool notEnd = pkt.wid < (totalPktNum - QueueLength);
+                    if (partialAgg){ // partial aggregate
+                        if (min_wid == now_wid){
+                            // Directly sent min_wid
+                            pktList.push_back({(*min_wid)[0], (*min_wid)[WorkerNum + 1]});
+                            for (int j = 1; j <= WorkerNum; j++){
+                                if ((*min_wid)[j] != 0){
+                                    setBit(hasSent, j);
+                                }
+                            }
+                            hasSentVector.push_back({hasSent[0], hasSent[1]});
+                            clearBuffer(hasSent);
+                        }
+                        // Directly sent ACK
+                        for (int j = 1; j <= WorkerNum; j++){
                             if ((*min_wid)[j] != 0){
-                                setBit(hasSent, j);
+                                ackList.push_back({j, (*min_wid)[j]});
                             }
                         }
-                        hasSentVector.push_back({hasSent[0], hasSent[1]});
-                        clearBuffer(hasSent);
+                    }
+                    else{
+                        // std::cout << "drop min\n";
                     }
                     // Update diractlySentWid
                     diractlySentWid.push_back({(*min_wid)[0], (*min_wid)[WorkerNum + 1], (*min_wid)[WorkerNum + 2]});
-                    // Directly sent ACK
-                    for (int j = 1; j <= 10; j++){
-                        if ((*min_wid)[j] != 0){
-                            ackList.push_back({j, (*min_wid)[j]});
-                        }
-                    }
+                    // std::cout << "diractlySentWid : " << (*min_wid)[0] << ", " << (*min_wid)[WorkerNum + 1] << ", " << (*min_wid)[WorkerNum + 2] << "\n";
                     // Update min_wid
                     (*min_wid) = std::vector<long long>(3 + WorkerNum);
                     if ((min_wid + 1) == AggregateTable.end()){
@@ -507,7 +515,7 @@ std::pair<std::vector<std::pair<int, int>>, std::vector<std::pair<int, long long
                             if (min_wid == it){
                                 // Directly sent min_wid
                                 pktList.push_back({(*min_wid)[0], (*min_wid)[WorkerNum + 1]});
-                                for (int j = 1; j <= 10; j++){
+                                for (int j = 1; j <= WorkerNum; j++){
                                     if ((*min_wid)[j] != 0){
                                         setBit(hasSent, j);
                                     }
@@ -518,7 +526,7 @@ std::pair<std::vector<std::pair<int, int>>, std::vector<std::pair<int, long long
                             // Update diractlySentWid
                             diractlySentWid.push_back({(*min_wid)[0], (*min_wid)[WorkerNum + 1], (*min_wid)[WorkerNum + 2]});
                             // Directly sent ACK
-                            for (int j = 1; j <= 10; j++){
+                            for (int j = 1; j <= WorkerNum; j++){
                                 if ((*min_wid)[j] != 0){
                                     ackList.push_back({j, (*min_wid)[j]});
                                 }
@@ -551,7 +559,7 @@ std::pair<std::vector<std::pair<int, int>>, std::vector<std::pair<int, long long
                         if (min_wid == it){
                             // Directly sent min_wid
                             pktList.push_back({(*min_wid)[0], (*min_wid)[WorkerNum + 1]});
-                            for (int j = 1; j <= 10; j++){
+                            for (int j = 1; j <= WorkerNum; j++){
                                 if ((*min_wid)[j] != 0){
                                     setBit(hasSent, j);
                                 }
@@ -562,7 +570,7 @@ std::pair<std::vector<std::pair<int, int>>, std::vector<std::pair<int, long long
                         // Update diractlySentWid
                         diractlySentWid.push_back({(*min_wid)[0], (*min_wid)[WorkerNum + 1], (*min_wid)[WorkerNum + 2]});
                         // Directly sent ACK
-                        for (int j = 1; j <= 10; j++){
+                        for (int j = 1; j <= WorkerNum; j++){
                             if ((*min_wid)[j] != 0){
                                 ackList.push_back({j, (*min_wid)[j]});
                             }
@@ -595,7 +603,7 @@ std::pair<std::vector<std::pair<int, int>>, std::vector<std::pair<int, long long
                         // Sent aggregate pkt
                         for (auto wid = now_wid; ;){
                             pktList.push_back({(*wid)[0], (*wid)[WorkerNum + 1]});
-                            for (int j = 1; j <= 10; j++){
+                            for (int j = 1; j <= WorkerNum; j++){
                                 if ((*wid)[j] != 0){
                                     setBit(hasSent, j);
                                 }
@@ -698,15 +706,16 @@ std::vector<std::pair<int, long long>> Retransmission(int ackWid, std::vector<st
     int tempWid = ackWid;
     bool isAckWid = false;
     for (auto pair : intSackList){
-        std::cout << "pair : " << pair.first << "\n";
+        // std::cout << "pair : " << pair.first << "\n";
         while(tempWid < pair.first){
-            std::cout << "tempWid : " << tempWid << "\n";
+            // std::cout << "tempWid : " << tempWid << "\n";
             if (tempWid < (*min_wid)[0]){ // in directly_map
-                std::cout << "in directly_map!\n";
+                // std::cout << "in directly_map!\n";
                 for (auto it = diractlySentWid.begin(); it != diractlySentWid.end(); it++){
                     if ((*it)[0] == tempWid){
+                        // std::cout << "diractlySentWid : " << (*it)[0] << ", " << (*it)[1] << ", " << (*it)[2] << "\n";
                         pktList.push_back({(*it)[0], (*it)[1]});
-                        std::cout << "push : " << (*it)[0] << "\n";
+                        // std::cout << "push : " << (*it)[0] << "\n";
                         if ((*it)[0] == ackWid){
                             isAckWid = true;
                         }
@@ -719,15 +728,15 @@ std::vector<std::pair<int, long long>> Retransmission(int ackWid, std::vector<st
                 }
             }
             else{ // in aggregateTable
-                std::cout << "in aggregateTable!\n";
+                // std::cout << "in aggregateTable!\n";
                 for (auto it = min_wid; ; ){
                     if ((*it)[0] == tempWid){
                         pktList.push_back({(*it)[0], (*it)[WorkerNum + 1]});
-                        std::cout << "push : " << (*it)[0] << "\n";
+                        // std::cout << "push : " << (*it)[0] << "\n";
                         if ((*it)[0] == ackWid){
                             isAckWid = true;
                         }
-                        for (int j = 1; j <= 10; j++){
+                        for (int j = 1; j <= WorkerNum; j++){
                             if ((*it)[j] != 0){
                                 setBit(hasSent, j);
                             }
@@ -779,7 +788,7 @@ std::vector<std::pair<int, long long>> Retransmission(int ackWid, std::vector<st
         for (auto it = min_wid; ; ){
             if ((*it)[0] == tempWid){
                 pktList.push_back({(*it)[0], (*it)[WorkerNum + 1]});
-                for (int j = 1; j <= 10; j++){
+                for (int j = 1; j <= WorkerNum; j++){
                     if ((*it)[j] != 0){
                         setBit(hasSent, j);
                     }
@@ -850,10 +859,9 @@ AggregateQueueDisc::Enqueue(Ptr<QueueDiscItem> item)
 
     // // NS_LOG_INFO("going from " << ipHeader.GetSource() << " to " << ipHeader.GetDestination());
     // if ((Mycount1 == 200)){
-    // std::cout << "going from " << ipHeader.GetSource() << " to " << ipHeader.GetDestination() << ", TTL : " << ipHeader.GetTtl() << "\n";
+    // std::cout << "TTL : " << ipHeader.GetTtl() << "\n";
     //     return false;
     // }
-    // std::cout << "another disc quota : " << anotherDisc->GetQuota() << "\n"; 
 
     if (Mycount1 % 1 == 0){
         if (copy->PeekHeader(tcpHeader) != 0) {
@@ -875,25 +883,28 @@ AggregateQueueDisc::Enqueue(Ptr<QueueDiscItem> item)
                 temp += ".2";
                 Ipv4Address psAddr = Ipv4Address(temp.c_str());
                 if (src_info.first == psAddr) { // if packet is ACK
-                    std::cout << "get ack :" << ack_num << " from " << src_info.first << " to " << dst_info.first << " TTL = " << ttl << "\n";
+                    // std::cout << "get ack :" << ack_num << " from " << src_info.first << " to " << dst_info.first << " TTL = " << ttl << "\n";
                     ackQueue = GetInternalQueue(0);
                     getFlag = true;
                     // return false;
                     // int pktnum = GetInternalQueue(0)->GetTotalReceivedPackets();
                     // std::cout << "ACK pktnum = " << pktnum << "\n";
                     std::vector<std::pair<int, int>> ackList;
-                    std::vector<std::pair<int, long long>> pktList;
+                    std::vector<std::pair<int, long long>> pktList = globalPktList;
+                    globalPktList.clear();
+                    hasSentVector = globalHasSentVector;
+                    globalHasSentVector.clear();
                     int ackWid = (ack_num - 1) / payloadSize;
                     if (AggregateAck < ack_num){
                         AggregateAck = ack_num;
                         dupAckCount = 0;
                         ackList = PacketAcked(ackWid);
                     }
-                    else if(AggregateAck == ack_num){ // dup ack
+                    else if((AggregateAck == ack_num) && pktList.empty()){ // dup ack
                         dupAckCount++;
-                        std::cout << "Dup Ack : " << dupAckCount << "\n";
+                        // std::cout << "Dup Ack : " << dupAckCount << "\n";
                         if (dupAckCount == 3 || (dupAckCount % 12) == 0){
-                            std::cout << "retransmission\n";
+                            // std::cout << "retransmission\n";
                             // retransmission
                             std::vector<std::pair<int, int>> intSackList;
                             if (tcpHeader.GetOption(ns3::TcpOption::SACK)){
@@ -912,7 +923,7 @@ AggregateQueueDisc::Enqueue(Ptr<QueueDiscItem> item)
                         }
                     }
                     for (auto ackData : ackList){
-                        std::cout << "<= sent ack " << ackData.second + payloadSize << " to worker : " << ackData.first << "\n";
+                        // std::cout << "<= sent ack " << ackData.second + payloadSize << " to worker : " << ackData.first << "\n";
                         TcpHeader newTCPheader;
                         if(tcpHeader.GetOption(ns3::TcpOption::SACK)){
                             newTCPheader = TcpHeader();
@@ -944,23 +955,23 @@ AggregateQueueDisc::Enqueue(Ptr<QueueDiscItem> item)
                         std::vector<std::pair<int, int>> SackList = generateSackList(receivedPackets[ackData.first - 1], lastAck[ackData.first - 1]);
                         if (!SackList.empty()){
                             if(newTCPheader.GetOption(ns3::TcpOption::SACK)){
-                                newTCPheader.GetOption(ns3::TcpOption::SACK)->Print(std::cout);
-                                std::cout << "\n";
+                                // newTCPheader.GetOption(ns3::TcpOption::SACK)->Print(std::cout);
+                                // std::cout << "\n";
                             }
                             else{
-                                std::cout << "No sacklist\n";
+                                // std::cout << "No sacklist\n";
                             }
                             AddOptionSack(newTCPheader, SackList);
                             if(newTCPheader.GetOption(ns3::TcpOption::SACK)){
-                                newTCPheader.GetOption(ns3::TcpOption::SACK)->Print(std::cout);
-                                std::cout << "\n";
+                                // newTCPheader.GetOption(ns3::TcpOption::SACK)->Print(std::cout);
+                                // std::cout << "\n";
                             }
                             else{
-                                std::cout << "No sacklist\n";
+                                // std::cout << "No sacklist\n";
                             }
                         }
                         newTCPheader.SetAckNumber(SequenceNumber32(lastAck[ackData.first - 1]));
-                        std::cout << "<= sent ack " << lastAck[ackData.first - 1] << " to worker : " << ackData.first << "\n";
+                        // std::cout << "<= sent ack " << lastAck[ackData.first - 1] << " to worker : " << ackData.first << "\n";
                         newPacket->AddHeader(newTCPheader);
                         uint32_t ret = newPacket->GetSize();
                         Address addr = ipItem->GetAddress();
@@ -1007,7 +1018,7 @@ AggregateQueueDisc::Enqueue(Ptr<QueueDiscItem> item)
                         out_tcpHeader.SetSourcePort(LeaderTuple.second);
                         out_tcpHeader.SetDestinationPort(tcpHeader.GetSourcePort());
                         out_tcpHeader.SetSequenceNumber(SequenceNumber32((pkt.first * payloadSize) + 1));
-                        std::cout << "<= sent seq " << (pkt.first * payloadSize) + 1 << " to PS\n";
+                        // std::cout << "<= sent seq " << (pkt.first * payloadSize) + 1 << " to PS\n";
                         out_tcpHeader.SetAckNumber(SequenceNumber32(1));
                         newPacket->AddHeader(out_tcpHeader);
                         uint32_t ret = newPacket->GetSize();
@@ -1026,8 +1037,16 @@ AggregateQueueDisc::Enqueue(Ptr<QueueDiscItem> item)
                         ///////////////////////////// enqueue
                         // m_stats.nTotalReceivedPackets++;
                         // m_stats.nTotalReceivedBytes += ipItem->GetSize();
-                        pktQueue->Enqueue(ipItem);
-                        anotherDisc->Run();
+                        // std::cout << "send to another queue!\n";
+                        if (pktQueue->Enqueue(ipItem)){
+                            // std::cout << "success\n";
+                            anotherDisc->Run();
+                        }
+                        else{
+                            // std::cout << "failed\n";
+                            globalPktList.push_back(pkt);
+                            globalHasSentVector.push_back({aggregate_payload[0], aggregate_payload[1]});
+                        }
                         // retval = DoEnqueue(ipItem);
 
                         // if (retval)
@@ -1054,7 +1073,7 @@ AggregateQueueDisc::Enqueue(Ptr<QueueDiscItem> item)
                     }
                     // create object for incoming packets
                     aggregate_pkt pkt(tcpHeader, buffer);
-                    std::cout << "Worker : " << Worker << "; receive seq: " << pkt.seq  << "; wid : " << pkt.wid <<  " !" << "\n";
+                    // std::cout << "Worker : " << Worker << "; receive seq: " << pkt.seq  << "; wid : " << pkt.wid <<  " !" << "\n";
                     // check if need aggregate
                     std::pair<std::vector<std::pair<int, int>>, std::vector<std::pair<int, long long>>> AggregateParam = UpdateTable(pkt, Worker);
                     std::vector<std::pair<int, int>> ackList = AggregateParam.first;
@@ -1087,23 +1106,23 @@ AggregateQueueDisc::Enqueue(Ptr<QueueDiscItem> item)
                         std::vector<std::pair<int, int>> SackList = generateSackList(receivedPackets[ackData.first - 1], lastAck[ackData.first - 1]);
                         if (!SackList.empty()){
                             if(newTCPheader.GetOption(ns3::TcpOption::SACK)){
-                                newTCPheader.GetOption(ns3::TcpOption::SACK)->Print(std::cout);
-                                std::cout << "\n";
+                                // newTCPheader.GetOption(ns3::TcpOption::SACK)->Print(std::cout);
+                                // std::cout << "\n";
                             }
                             else{
-                                std::cout << "No sacklist\n";
+                                // std::cout << "No sacklist\n";
                             }
                             AddOptionSack(newTCPheader, SackList);
                             if(newTCPheader.GetOption(ns3::TcpOption::SACK)){
-                                newTCPheader.GetOption(ns3::TcpOption::SACK)->Print(std::cout);
-                                std::cout << "\n";
+                                // newTCPheader.GetOption(ns3::TcpOption::SACK)->Print(std::cout);
+                                // std::cout << "\n";
                             }
                             else{
-                                std::cout << "No sacklist\n";
+                                // std::cout << "No sacklist\n";
                             }
                         }
                         newTCPheader.SetAckNumber(SequenceNumber32(lastAck[ackData.first - 1]));
-                        std::cout << "=> sent ack " << lastAck[ackData.first - 1] << " to worker : " << ackData.first << "\n";
+                        // std::cout << "=> sent ack " << lastAck[ackData.first - 1] << " to worker : " << ackData.first << "\n";
                         newPacket->AddHeader(newTCPheader);
                         uint32_t ret = newPacket->GetSize();
                         Address addr = ipItem->GetAddress();
@@ -1122,16 +1141,16 @@ AggregateQueueDisc::Enqueue(Ptr<QueueDiscItem> item)
                         // m_stats.nTotalReceivedPackets++;
                         // m_stats.nTotalReceivedBytes += ipItem->GetSize();
                         if (getFlag){
-                            std::cout << "try to ack\n";
+                            // std::cout << "try to ack\n";
                             if (ackQueue->Enqueue(ipItem)){
-                                std::cout << "success\n";
+                                // std::cout << "success\n";
                                 anotherDisc->Run();
                             }
                             else{
-                                std::cout << "fall\n";
+                                // std::cout << "fall\n";
                                 uint32_t nQueued = ackQueue->GetCurrentSize().GetValue();
                                 uint32_t maxnQueued = ackQueue->GetMaxSize().GetValue();
-                                std::cout << "nQueued : " << nQueued << ", maxnQueued :" << maxnQueued << "\n";
+                                // std::cout << "nQueued : " << nQueued << ", maxnQueued :" << maxnQueued << "\n";
                             }
                         }
                         // retval = DoEnqueue(ipItem);
@@ -1162,7 +1181,7 @@ AggregateQueueDisc::Enqueue(Ptr<QueueDiscItem> item)
                         TcpHeader out_tcpHeader = tcpHeader;
                         out_tcpHeader.SetSourcePort(LeaderTuple.second);
                         out_tcpHeader.SetSequenceNumber(SequenceNumber32((pkts.first * payloadSize) + 1));
-                        std::cout << "=> sent seq " << (pkts.first * payloadSize) + 1 << " to PS\n";
+                        // std::cout << "=> sent seq " << (pkts.first * payloadSize) + 1 << " to PS\n";
                         out_tcpHeader.SetAckNumber(SequenceNumber32(1));
                         newPacket->AddHeader(out_tcpHeader);
                         uint32_t ret = newPacket->GetSize();

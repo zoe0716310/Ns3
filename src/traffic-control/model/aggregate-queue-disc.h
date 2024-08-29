@@ -56,6 +56,8 @@ class AggregateQueueDisc : public QueueDisc
 
     uint32_t GetQueueLength() const;
 
+    void SetAnotherDisc(Ptr<ns3::QueueDisc>);
+
     // Reasons for dropping packets
     static constexpr const char* LIMIT_EXCEEDED_DROP =
         "Queue disc limit exceeded"; //!< Packet dropped due to queue disc limit exceeded
@@ -67,6 +69,7 @@ class AggregateQueueDisc : public QueueDisc
     Ptr<const QueueDiscItem> DoPeek() override;
     bool CheckConfig() override;
     void InitializeParams() override;
+    Ptr<ns3::QueueDisc> anotherDisc;
 };
 
 } // namespace ns3
