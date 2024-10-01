@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # 定义数组
-mean_bw=(30)  # 用你的实际数值替换这些示例值
-deltas=(1 2 3 4 5)
+mean_bw=(20)  # 用你的实际数值替换这些示例值
+deltas=(1)
 seed=(1 2 3 4 5 6 7 8 9 10)
-bandwidth=(80)
+bandwidth=(40)
 
 # 遍历数组组合
 for mean_rate in "${mean_bw[@]}"; do
@@ -21,7 +21,7 @@ for mean_rate in "${mean_bw[@]}"; do
         fi
       
         # 生成命令
-        command="./ns3 run fifth -- --mean=$mean_rate --standard_deviation=$delta --outputPcapDir=$dir --outgoingBW=$bw --seed=$s --timeout=5 > ${dir}/seed${s}.txt &"
+        command="./ns3 run fifth -- --mean=$mean_rate --standard_deviation=$delta --outputPcapDir=$dir --outgoingBW=$bw --seed=$s --timeout=4 > ${dir}/seed${s}.txt &"
         # command="./ns3 run fifth -- --bigN=$mean_rate --alpha=$delta --outputPcapDir=$dir --outgoingBW=$bw --seed=$s > ${dir}/seed${s}.txt &"
 
         # 打印或执行命令
